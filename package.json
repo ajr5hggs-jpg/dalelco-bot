@@ -1,0 +1,1 @@
+{"name":"dalelco-bot","main":"index.js","scripts":{"start":"node index.js"},"dependencies":{"telegraf":"^4.15.0","express":"^4.18.2","axios":"^1.6.0"}}
