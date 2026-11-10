@@ -1,57 +1,50 @@
-const { Telegraf, Markup } = require('telegraf')
-const express = require('express')
-const bot = new Telegraf(process.env.BOT_TOKEN)
-const app = express()
-app.get('/', (req,res)=>res.send('RSI Bot Live'))
-app.listen(process.env.PORT || 10000)
-let prices=[]
-let lastSignal=0
-const CHAT_ID=process.env.CHAT_ID
-const menu=Markup.keyboard([['Live Price','RSI Now'],['Status']]).resize()
-async function getGoldPrice(){
- try{
-  const r=await fetch('https://api.gold-api.com/price/XAU')
-  const j=await r.json()
-  return parseFloat(j.price||2000)
- }catch{return 2000}
+const { Telegraf } = require('telegraf');
+const express = require('express');
+
+const BOT_TOKEN = process.env.BOT_TOKEN;
+const CHAT_ID = process.env.CHAT_ID;
+
+if (!BOT_TOKEN || !CHAT_ID) {
+  console.log('Missing BOT_TOKEN or CHAT_ID');
+  process.exit(1);
 }
-function calcRSI(prices){
- if(prices.length<15) return 50
- let g=0,l=0
- for(let i=prices.length-14;i<prices.length;i++){
-  const d=prices[i]-prices[i-1]
-  if(d>=0) g+=d; else l-=d
- }
- if(l==0) return 100
- const rs=g/l
- return 100-(100/(1+rs))
+
+const bot = new Telegraf(BOT_TOKEN);
+const app = express();
+app.get('/', (req, res) => res.send('Gold Bot Live RSI 35/60'));
+app.listen(process.env.PORT || 10000, () => console.log('Server started'));
+
+const RSI_LOW = 35;
+const RSI_HIGH = 60;
+
+async function checkGold() {
+  try {
+    // هنا بنجيب سعر الدهب الحقيقي
+    const res = await fetch('https://api.binance.com/api/v3/klines?symbol=PAXGUSDT&interval=1h&limit=100');
+    const data = await res.json();
+    const closes = data.map(c => parseFloat(c[4]));
+    
+    // حساب RSI بسيط
+    let gains=0, losses=0;
+    for(let i=1; i<14; i++){
+      const diff = closes[closes.length-i] - closes[closes.length-i-1];
+      if(diff>=0) gains+=diff; else losses-=diff;
+    }
+    const rs = gains/losses;
+    const rsi = 100 - (100/(1+rs));
+    
+    console.log(`Gold RSI: ${rsi.toFixed(2)}`);
+    
+    if(rsi < RSI_LOW) {
+      await bot.telegram.sendMessage(CHAT_ID, `🟢 ذهب رخيص! RSI = ${rsi.toFixed(1)} (تحت 35)\nإشارة: اشتري`);
+    } else if(rsi > RSI_HIGH) {
+      await bot.telegram.sendMessage(CHAT_ID, `🔴 ذهب غالي! RSI = ${rsi.toFixed(1)} (فوق 60)\nإشارة: بيع`);
+    }
+  } catch(e){ console.log('Error:', e.message); }
 }
-async function check(){
- const p=await getGoldPrice()
- prices.push(p)
- if(prices.length>50) prices.shift()
- const rsi=calcRSI(prices)
- console.log(`Price ${p} RSI ${rsi}`)
- const now=Date.now()
- if(now-lastSignal<3600000) return
- if(rsi<35){
-  lastSignal=now
-  if(CHAT_ID) await bot.telegram.sendMessage(CHAT_ID,`🟢 BUY GOLD\nPrice: ${p}\nRSI: ${rsi.toFixed(2)} < 35`)
- }else if(rsi>65){
-  lastSignal=now
-  if(CHAT_ID) await bot.telegram.sendMessage(CHAT_ID,`🔴 SELL GOLD\nPrice: ${p}\nRSI: ${rsi.toFixed(2)} > 65`)
- }
-}
-setInterval(check,2*60*1000)
-check()
-bot.start(ctx=>ctx.reply('RSI Bot شغال ✅\nفحص كل دقيقتين 35/65',menu))
-bot.hears('Live Price',async ctx=>{
- const p=await getGoldPrice()
- ctx.reply(`💰 GOLD: ${p}`)
-})
-bot.hears('RSI Now',ctx=>{
- const rsi=calcRSI(prices)
- ctx.reply(`RSI: ${rsi.toFixed(2)}\nعدد: ${prices.length}/15`)
-})
-bot.hears('Status',ctx=>ctx.reply(`Active ✅\nRSI 35/65\nPrices: ${prices.length}`,menu))
-bot.launch()
+
+bot.start((ctx) => ctx.reply(`البوت شغال ✅\n35 = شراء\n60 = بيع`));
+bot.launch();
+console.log('Bot started RSI 35/60');
+setInterval(checkGold, 5*60*1000); // كل 5 دقائق
+checkGold();
