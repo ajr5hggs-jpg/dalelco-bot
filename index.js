@@ -4,79 +4,84 @@ const BOT_TOKEN=process.env.BOT_TOKEN;
 const CHAT_ID=process.env.CHAT_ID;
 const bot=new Telegraf(BOT_TOKEN);
 const app=express();
-app.get('/',(q,r)=>r.send('Dalelco Live Menu SL TP'));
-app.listen(process.env.PORT||10000,()=>console.log('Server OK'));
+app.get('/',(q,r)=>r.send('Dalelco Pro Bot Live'));
+app.listen(process.env.PORT||10000);
 
-let SETTINGS={frame:'1h',rsiBuy:35,rsiSell:60};
+let S={frame:'1h',buy:35,sell:65,lastSignal:'No signal yet',lastData:null};
 
-function buildSignal(t,p,r){
-let s=t=='BUY'?(p-55).toFixed(2):(p+55).toFixed(2);
-let a=t=='BUY'?(p+85).toFixed(2):(p-85).toFixed(2);
-let b=t=='BUY'?(p+160).toFixed(2):(p-160).toFixed(2);
-let c=t=='BUY'?(p+250).toFixed(2):(p-250).toFixed(2);
-return `${t=='BUY'?'🟢 شراء ذهب':'🔴 بيع ذهب'} Dalelco [${SETTINGS.frame}]
-💰 السعر: ${p}$ 
-📊 RSI: ${r}
-✅ دخول: ${p}
-🛑 SL: ${s} (-55$)
-🎯 TP1: ${a} (+85$)
-🎯 TP2: ${b} (+160$)
-🎯 TP3: ${c} (+250$)`;
+function ema(arr,period){
+let k=2/(period+1);let emaArr=[arr[0]];
+for(let i=1;i<arr.length;i++) emaArr.push(arr[i]*k+emaArr[i-1]*(1-k));
+return emaArr[emaArr.length-1];
 }
-
+function rsiCalc(closes){
+let g=0,l=0;
+for(let i=closes.length-15;i<closes.length-1;i++){
+let diff=closes[i+1]-closes[i];
+if(diff>=0)g+=diff;else l-=diff;
+}
+if(l==0)return 100;
+let rs=g/l;return 100-(100/(1+rs));
+}
 async function getData(){
-const res=await fetch(`https://api.binance.com/api/v3/klines?symbol=PAXGUSDT&interval=${SETTINGS.frame}&limit=100`);
+const res=await fetch(`https://api.binance.com/api/v3/klines?symbol=PAXGUSDT&interval=${S.frame}&limit=100`);
 const d=await res.json();
 const closes=d.map(x=>+x[4]);
-let g=0,l=0;
-for(let i=1;i<15;i++){
-let df=closes[closes.length-i]-closes[closes.length-1-i];
-if(df>=0)g+=df;else l-=df;
+const price=closes[closes.length-1];
+const ema20=ema(closes,20);
+const ema50=ema(closes,50);
+const rsi=rsiCalc(closes);
+const trend=price>ema20 && price>ema50 ? 'Uptrend' : price<ema20 && price<ema50 ? 'Downtrend' : 'Sideways';
+return {price,ema20,ema50,rsi,trend};
 }
-let rsi=100-(100/(1+g/l));
-return {price:closes[closes.length-1],rsi};
-}
+function buildSignal(data,type){
+let entry=data.price;
+let sl=data.ema50;
+let risk=Math.abs(entry-sl);
+let tp1=entry + risk*1.5*(type=='SELL'?-1:1);
+let tp2=entry + risk*3*(type=='SELL'?-1:1);
+let rr1=(Math.abs(tp1-entry)/risk).toFixed(1);
+let rr2=(Math.abs(tp2-entry)/risk).toFixed(1);
+let slPct=(((sl-entry)/entry)*100).toFixed(2);
+let tp1Pct=(((tp1-entry)/entry)*100).toFixed(2);
+let tp2Pct=(((tp2-entry)/entry)*100).toFixed(2);
+let emoji=type=='BUY'?'🟢':'🔴';
+let time=new Date().toISOString().slice(0,16).replace('T',' ')+' UTC';
+let msg=`${emoji} SIGNAL - PAXG/USDT (${S.frame})
+Entry: $${entry.toFixed(2)}
+SL: $${sl.toFixed(2)} (EMA50) (${slPct}%)
+TP1: $${tp1.toFixed(2)} (${tp1Pct>0?'+':''}${tp1Pct}% | RR ${rr1})
+TP2: $${tp2.toFixed(2)} (${tp2Pct>0?'+':''}${tp2Pct}% | RR ${rr2})
+RSI: ${data.rsi.toFixed(1)} | Trend: ${data.trend}
+Time: ${time}
 
-async function checkGold(){
+Signal only — no orders are placed.`;
+S.lastSignal=msg;S.lastData=data;return msg;
+}
+async function check(){
 try{
-let {price,rsi}=await getData();
-console.log(`[${SETTINGS.frame}] RSI ${rsi.toFixed(1)} Price ${price}`);
-if(rsi<SETTINGS.rsiBuy)await bot.telegram.sendMessage(CHAT_ID,buildSignal('BUY',price.toFixed(2),rsi.toFixed(1)));
-else if(rsi>SETTINGS.rsiSell)await bot.telegram.sendMessage(CHAT_ID,buildSignal('SELL',price.toFixed(2),rsi.toFixed(1)));
+let data=await getData();
+if(data.rsi < S.buy){
+let msg=buildSignal(data,'BUY');
+await bot.telegram.sendMessage(CHAT_ID,msg);
+}else if(data.rsi > S.sell){
+let msg=buildSignal(data,'SELL');
+await bot.telegram.sendMessage(CHAT_ID,msg);
+}
 }catch(e){console.log(e.message);}
 }
-
-function menuKeyboard(){
+function mainKb(){
 return Markup.inlineKeyboard([
-[Markup.button.callback(`⏰ الفريم: ${SETTINGS.frame}`,'noop'),Markup.button.callback(`📊 RSI Buy: ${SETTINGS.rsiBuy} Sell: ${SETTINGS.rsiSell}`,'noop')],
-[Markup.button.callback('1m','set_1m'),Markup.button.callback('5m','set_5m'),Markup.button.callback('15m','set_15m'),Markup.button.callback('1h','set_1h'),Markup.button.callback('4h','set_4h')],
-[Markup.button.callback('RSI Buy 30','rsiBuy_30'),Markup.button.callback('35','rsiBuy_35'),Markup.button.callback('40','rsiBuy_40')],
-[Markup.button.callback('RSI Sell 60','rsiSell_60'),Markup.button.callback('65','rsiSell_65'),Markup.button.callback('70','rsiSell_70')],
-[Markup.button.callback('💰 سعر حالي','do_price'),Markup.button.callback('📈 اشارة الان','do_signal')]
+[Markup.button.callback('📊 Status','do_status'),Markup.button.callback('💰 Live Price','do_price')],
+[Markup.button.callback('⚙️ Settings','do_settings'),Markup.button.callback('📈 Last Signal','do_last')]
 ]);
 }
-
-bot.start(ctx=>ctx.reply(`Dalelco Gold شغال 24س ✅
-الأوامر:
-/menu - لوحة تحكم الفريم و RSI
-/price - سعر الذهب الحالي
-/signal - اشارة الان`,menuKeyboard()));
-
-bot.command('menu',ctx=>ctx.reply(`⚙️ الإعدادات الحالية:
-فريم: ${SETTINGS.frame}
-شراء لما RSI أقل من: ${SETTINGS.rsiBuy}
-بيع لما RSI أكتر من: ${SETTINGS.rsiSell}
-
-اختار من الأزرار:`,menuKeyboard()));
-
-bot.command('signal',async ctx=>{
-let {price,rsi}=await getData();
-ctx.reply(buildSignal(rsi<50?'BUY':'SELL',price.toFixed(2),rsi.toFixed(1)));
+bot.start(async ctx=>{
+ctx.reply('Last signal resent below.',mainKb());
+let data=await getData();
+let type=data.rsi<50?'BUY':'SELL';
+ctx.reply(buildSignal(data,type));
 });
-
-bot.command('price',async ctx=>{
-try{
-let {price,rsi}=await getData();
-ctx.reply(`💰 الذهب: ${price.toFixed(2)}$
-📊 RSI: ${rsi.toFixed(1)}
-⏰ فريم: ${SETTINGS.frame}
+bot.action('do_status',async ctx=>{
+let d=await getData();
+await ctx.editMessageText(`Status
