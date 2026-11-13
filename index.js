@@ -76,4 +76,58 @@ Auto: ${set.auto?'ON ✅':'OFF 🔕'}
     }catch(e){ ctx.reply('حاول تاني بعد دقيقة', menu); }
   });
 
-  bot.hears('💰 Price
+  bot.hears('💰 Price', async ctx=>{ 
+    try{ const {price}=await getData(); ctx.reply(`💰 BTC: $${price.toFixed(2)}`, menu); }
+    catch{ ctx.reply('جرب تاني', menu); }
+  });
+
+  bot.hears('⚙️ Frame', ctx=>ctx.reply('اختار الفريم:',{reply_markup:{inline_keyboard:[[{text:'15m',callback_data:'f_15'},{text:'1h',callback_data:'f_60'},{text:'4h',callback_data:'f_240'},{text:'1D',callback_data:'f_D'}]]}}));
+  bot.hears('📈 RSI', ctx=>ctx.reply(`RSI الحالي B<${set.buy} S>${set.sell}`,{reply_markup:{inline_keyboard:[[{text:'Buy 30',callback_data:'b_30'},{text:'Buy 35',callback_data:'b_35'}],[{text:'Sell 65',callback_data:'s_65'},{text:'Sell 70',callback_data:'s_70'}]]}}));
+  bot.hears('🔔 Auto ON', ctx=>{ set.auto=true; chats.add(ctx.chat.id); ctx.reply('✅ Auto شغال\nحيرسل ليك براو بس لما تجي إشارة:\n💰 دخول + 🛑 SL + 🎯 TP', menu); });
+  bot.hears('🔕 Auto OFF', ctx=>{ set.auto=false; ctx.reply('🔕 Auto وقف', menu); });
+  bot.hears('❓ Help', ctx=>ctx.reply('البوت بفحص كل 5 دقايق ويرسل إشارة دخول كاملة براو', menu));
+
+  bot.on('callback_query', ctx=>{
+    const d=ctx.callbackQuery.data;
+    if(d.startsWith('f_')) set.frame=d.split('_')[1];
+    if(d.startsWith('b_')) set.buy=parseInt(d.split('_')[1]);
+    if(d.startsWith('s_')) set.sell=parseInt(d.split('_')[1]);
+    ctx.answerCbQuery(); ctx.reply(`✅ تم F:${set.frame} B:${set.buy} S:${set.sell}`, menu);
+  });
+
+  // Auto يرسل براو عند إشارة دخول فقط
+  setInterval(async ()=>{
+    if(!set.auto || chats.size==0) return;
+    try{
+      const {price,rsi}=await getData();
+      let curSig = rsi<set.buy ? 'BUY' : rsi>set.sell ? 'SELL' : 'WAIT';
+      
+      if(curSig!='WAIT' && curSig!=set.lastSig){
+        let isBuy=curSig=='BUY';
+        let sl=isBuy?price*0.98:price*1.02;
+        let tp1=isBuy?price*1.03:price*0.97;
+        let tp2=isBuy?price*1.05:price*0.95;
+        
+        let msg=
+`🚨 إشارة دخول جديدة!
+${isBuy?'🟢 BUY':'🔴 SELL'} BTC
+━━━━━━━━━━━━━━
+💰 سعر الدخول: $${price.toFixed(2)}
+📈 RSI: ${rsi.toFixed(1)}
+⏰ فريم: ${set.frame}
+
+🛑 Stop Loss: $${sl.toFixed(2)}
+🎯 TP1: $${tp1.toFixed(2)}
+🎯 TP2: $${tp2.toFixed(2)}
+━━━━━━━━━━━━━━`;
+        
+        for(let chatId of chats){
+          bot.telegram.sendMessage(chatId, msg, menu).catch(()=>{});
+        }
+      }
+      set.lastSig=curSig;
+    }catch(e){ console.log('Auto err: '+e.message); }
+  }, 5*60*1000);
+
+  bot.launch().then(()=>console.log('BOT LAUNCHED - AUTO ENTRY ONLY'));
+}
