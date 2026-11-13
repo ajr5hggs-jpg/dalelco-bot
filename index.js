@@ -1,81 +1,95 @@
 const { Telegraf } = require('telegraf');
-const BOT_TOKEN = process.env.BOT_TOKEN;
-const bot = new Telegraf(BOT_TOKEN);
+const express = require('express');
+const app = express();
 
+app.get('/', (req, res) => res.send('Dalelco Bot Live - Bybit'));
+app.listen(10000, () => console.log('Server ON 10000'));
+
+const bot = new Telegraf(process.env.BOT_TOKEN);
+
+let settings = { frame: '60', rsi_buy: 35, rsi_sell: 65, auto: false };
 let lastSignal = 0;
 
-// حساب RSI خفيف وسريع
-function calcRSI(prices, period = 14) {
-  let gains = 0, losses = 0;
-  for (let i = 1; i <= period; i++) {
-    let diff = prices[i] - prices[i-1];
-    if (diff >= 0) gains += diff; else losses -= diff;
+function calcRSI(prices, p = 14) {
+  let g = 0, l = 0;
+  for (let i = 1; i <= p; i++) {
+    let d = prices[i] - prices[i - 1];
+    if (d >= 0) g += d; else l -= d;
   }
-  let avgGain = gains / period;
-  let avgLoss = losses / period;
-  for (let i = period + 1; i < prices.length; i++) {
-    let diff = prices[i] - prices[i-1];
-    if (diff >= 0) {
-      avgGain = (avgGain * (period -1) + diff) / period;
-      avgLoss = (avgLoss * (period -1)) / period;
-    } else {
-      avgGain = (avgGain * (period -1)) / period;
-      avgLoss = (avgLoss * (period -1) - diff) / period;
-    }
+  let ag = g / p, al = l / p;
+  for (let i = p + 1; i < prices.length; i++) {
+    let d = prices[i] - prices[i - 1];
+    if (d >= 0) { ag = (ag * (p - 1) + d) / p; al = (al * (p - 1)) / p; }
+    else { ag = (ag * (p - 1)) / p; al = (al * (p - 1) - d) / p; }
   }
-  if (avgLoss === 0) return 100;
-  let rs = avgGain / avgLoss;
-  return 100 - (100 / (1 + rs));
+  if (al == 0) return 100;
+  return 100 - (100 / (1 + ag / al));
 }
 
 async function getData() {
-  // Bybit سريع وما محظور
-  const res = await fetch('https://api.bybit.com/v5/market/kline?category=linear&symbol=BTCUSDT&interval=60&limit=100');
-  const data = await res.json();
-  const klines = data.result.list.reverse(); // Bybit بجيبها مقلوبة
-  const closes = klines.map(k => parseFloat(k[4]));
-  const price = closes[closes.length - 1];
-  const rsi = calcRSI(closes.slice(-30));
-  return { price, rsi };
+  const res = await fetch(`https://api.bybit.com/v5/market/kline?category=linear&symbol=BTCUSDT&interval=${settings.frame}&limit=100`);
+  const json = await res.json();
+  const list = json.result.list.reverse();
+  const closes = list.map(k => parseFloat(k[4]));
+  return { price: closes[closes.length - 1], rsi: calcRSI(closes.slice(-30)) };
 }
 
-bot.start(async (ctx) => {
-  ctx.reply('🚀 Dalelco Pro - خفيف وسريع\nFrame: 1h | Buy<35 Sell>65', {
-    reply_markup: {
-      keyboard: [['📊 Status', '⚙️ Settings']],
-      resize_keyboard: true
-    }
-  });
+const mainMenu = {
+  reply_markup: {
+    keyboard: [
+      ['📊 Status', '⚙️ Settings'],
+      ['🔔 Auto ON', '🔕 Auto OFF'],
+      ['💰 Price', '❓ Help']
+    ],
+    resize_keyboard: true
+  }
+};
+
+bot.start((ctx) => {
+  ctx.reply(`🚀 Dalelco Pro - Bybit Fast\nFrame: ${settings.frame} | Buy<${settings.rsi_buy} Sell>${settings.rsi_sell}\nAuto: ${settings.auto ? 'ON' : 'OFF'}`, mainMenu);
 });
 
 bot.hears('📊 Status', async (ctx) => {
   try {
-    ctx.reply('⏳ بجيب السعر...');
     const { price, rsi } = await getData();
-    let signal = rsi < 35 ? '🟢 BUY' : rsi > 65 ? '🔴 SELL' : '⚪ WAIT';
-    let sl = rsi < 35 ? price * 0.98 : price * 1.02;
-    let tp1 = rsi < 35 ? price * 1.02 : price * 0.98;
-    let tp2 = rsi < 35 ? price * 1.04 : price * 0.96;
-    
-    ctx.reply(
-      `${signal}\n\n💰 Price: $${price.toFixed(2)}\n📈 RSI: ${rsi.toFixed(2)}\n\n🛑 SL: $${sl.toFixed(2)}\n🎯 TP1: $${tp1.toFixed(2)}\n🎯 TP2: $${tp2.toFixed(2)}\n\nSource: Bybit ✅`
-    );
-  } catch (e) {
-    ctx.reply('⚠️ خطأ بسيط، دوس Status تاني');
-  }
+    let sig = rsi < settings.rsi_buy ? '🟢 BUY' : rsi > settings.rsi_sell ? '🔴 SELL' : '⚪ WAIT';
+    let sl = sig.includes('BUY') ? price * 0.98 : price * 1.02;
+    let tp1 = sig.includes('BUY') ? price * 1.02 : price * 0.98;
+    let tp2 = sig.includes('BUY') ? price * 1.04 : price * 0.96;
+    ctx.reply(`${sig}\n\n💰 Price: $${price.toFixed(2)}\n📈 RSI: ${rsi.toFixed(2)}\n\n🛑 SL: $${sl.toFixed(2)}\n🎯 TP1: $${tp1.toFixed(2)}\n🎯 TP2: $${tp2.toFixed(2)}`, mainMenu);
+  } catch (e) { ctx.reply('⚠️ جرب تاني', mainMenu); }
 });
 
-// فحص كل 5 دقايق بدل 2 (أخف 60%)
+bot.hears('💰 Price', async (ctx) => {
+  const { price } = await getData();
+  ctx.reply(`💰 BTC: $${price.toFixed(2)}`, mainMenu);
+});
+
+bot.hears('⚙️ Settings', (ctx) => {
+  ctx.reply('⚙️ اختار الفريم:', {
+    reply_markup: { inline_keyboard: [[{ text: '1h', callback_data: 'f_60' }, { text: '4h', callback_data: 'f_240' }, { text: '1d', callback_data: 'f_D' }]] }
+  });
+});
+
+bot.hears('🔔 Auto ON', (ctx) => { settings.auto = true; ctx.reply('🔔 Auto ON كل 5 دقايق', mainMenu); });
+bot.hears('🔕 Auto OFF', (ctx) => { settings.auto = false; ctx.reply('🔕 Auto OFF', mainMenu); });
+bot.hears('❓ Help', (ctx) => ctx.reply('Status: فحص كامل\nPrice: السعر بس\nSettings: الفريم\nAuto: تشغيل تلقائي', mainMenu));
+
+bot.on('callback_query', (ctx) => {
+  const d = ctx.callbackQuery.data;
+  if (d.startsWith('f_')) { settings.frame = d.replace('f_', ''); ctx.reply(`✅ Frame بقى ${settings.frame}`, mainMenu); }
+  ctx.answerCbQuery();
+});
+
 setInterval(async () => {
+  if (!settings.auto) return;
   try {
     const { price, rsi } = await getData();
-    if (rsi < 35 && Date.now() - lastSignal > 3600000) {
+    if ((rsi < settings.rsi_buy || rsi > settings.rsi_sell) && Date.now() - lastSignal > 3600000) {
       lastSignal = Date.now();
-      // هنا بيرسل الإشارة لكل الناس
-      // bot.telegram.sendMessage...
     }
-  } catch(e) {}
-}, 300000); // 5 دقايق
+  } catch (e) { }
+}, 300000);
 
 bot.launch();
-console.log('Bot خفيف شغال بـ Bybit');
+console.log('Bot Live');
