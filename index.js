@@ -37,19 +37,9 @@ if(!process.env.BOT_TOKEN){
 
   const menu={reply_markup:{keyboard:[['📊 Status','💰 Price'],['💱 Currency','⚙️ Frame'],['📈 RSI','🔔 Auto ON'],['🔕 Auto OFF','❓ Help']],resize_keyboard:true}};
 
-  bot.catch((e,ctx)=>console.log(e.message));
-
   bot.start(ctx=>{
     chats.add(ctx.chat.id);
-    ctx.reply(`🚀 Dalelco Multi شغال
-━━━━━━━━━━━━━━
-عملة: ${set.symName} (${set.sym})
-F: ${set.frame} | B<${set.buy} S>${set.sell}
-Auto: ${set.auto?'ON ✅':'OFF'}
-
-💱 Currency = غير العملة
-📊 Status = دخول + SL + TP
-━━━━━━━━━━━━━━`, menu);
+    ctx.reply(`🚀 Dalelco Multi شغال\nعملة: ${set.symName} (${set.sym})\nF: ${set.frame} | B<${set.buy} S>${set.sell}\nAuto: ${set.auto?'ON ✅':'OFF'}\n\n💱 = غير العملة\n📊 = دخول + SL + TP`, menu);
   });
 
   bot.hears('💱 Currency', ctx=>{
@@ -69,7 +59,7 @@ Auto: ${set.auto?'ON ✅':'OFF'}
       let sl=isBuy?price*0.98:isSell?price*1.02:price*0.98;
       let tp1=isBuy?price*1.03:isSell?price*0.97:price*1.03;
       let tp2=isBuy?price*1.05:isSell?price*0.95:price*1.05;
-      ctx.reply(`${sig}\n━━━━━━━━━━━━━━\n💰 دخول ${set.sym}: $${price.toFixed(4)}\n📈 RSI: ${rsi.toFixed(1)}\n⏰ فريم: ${set.frame}\n\n🛑 SL: $${sl.toFixed(4)}\n🎯 TP1: $${tp1.toFixed(4)}\n🎯 TP2: $${tp2.toFixed(4)}\n━━━━━━━━━━━━━━`, menu);
+      ctx.reply(`${sig}\n💰 دخول ${set.sym}: $${price.toFixed(4)}\n📈 RSI: ${rsi.toFixed(1)}\n🛑 SL: $${sl.toFixed(4)}\n🎯 TP1: $${tp1.toFixed(4)}\n🎯 TP2: $${tp2.toFixed(4)}`, menu);
     }catch(e){ ctx.reply('حاول تاني', menu); }
   });
 
@@ -86,7 +76,7 @@ Auto: ${set.auto?'ON ✅':'OFF'}
 
   bot.on('callback_query', ctx=>{
     const d=ctx.callbackQuery.data;
-    if(d.startsWith('cur_')){ let p=d.split('_'); set.sym=p[1]; set.symName=p[2]; set.lastSig='WAIT'; ctx.answerCbQuery(`تم ${set.symName}`); ctx.reply(`✅ العملة بقت: ${set.symName} (${set.sym})`, menu); return; }
+    if(d.startsWith('cur_')){ let p=d.split('_'); set.sym=p[1]; set.symName=p[2]; set.lastSig='WAIT'; ctx.answerCbQuery(`تم ${set.symName}`); ctx.reply(`✅ بقت: ${set.symName} (${set.sym})`, menu); return; }
     if(d.startsWith('f_')) set.frame=d.split('_')[1];
     if(d.startsWith('b_')) set.buy=parseInt(d.split('_')[1]);
     if(d.startsWith('s_')) set.sell=parseInt(d.split('_')[1]);
@@ -101,7 +91,7 @@ Auto: ${set.auto?'ON ✅':'OFF'}
       if(curSig!='WAIT' && curSig!=set.lastSig){
         let isBuy=curSig=='BUY';
         let sl=isBuy?price*0.98:price*1.02; let tp1=isBuy?price*1.03:price*0.97; let tp2=isBuy?price*1.05:price*0.95;
-        let msg=`🚨 ${set.symName} إشارة!\n${isBuy?'🟢 BUY':'🔴 SELL'} ${set.sym}\n━━━━━━━━━━━━━━\n💰 دخول: $${price.toFixed(4)}\n📈 RSI: ${rsi.toFixed(1)}\n🛑 SL: $${sl.toFixed(4)}\n🎯 TP1: $${tp1.toFixed(4)}\n🎯 TP2: $${tp2.toFixed(4)}`;
+        let msg=`🚨 ${set.symName} إشارة!\n${isBuy?'🟢 BUY':'🔴 SELL'} ${set.sym}\n💰 دخول: $${price.toFixed(4)}\n🛑 SL: $${sl.toFixed(4)}\n🎯 TP1: $${tp1.toFixed(4)}\n🎯 TP2: $${tp2.toFixed(4)}`;
         for(let chatId of chats){ bot.telegram.sendMessage(chatId, msg, menu).catch(()=>{}); }
       }
       set.lastSig=curSig;
